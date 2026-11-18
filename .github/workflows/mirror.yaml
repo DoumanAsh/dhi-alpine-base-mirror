@@ -1,0 +1,57 @@
+name: Docker
+
+on:
+  # Once a month
+  schedule:
+    - cron: '0 0 1 * *'
+  push:
+    paths:
+      - '.github/workflows/mirror.yaml'
+    branches:
+      - master
+  workflow_dispatch:
+
+env:
+  DOCKER_REGISTRY: docker.io
+  GITHUB_REGISTRY: ghcr.io
+  QUAY_REGISTRY: quay.io
+  DOCKER_IMAGE_NAME: douman/alpine-base
+  GITHUB_IMAGE_NAME: doumanash/alpine-base
+  REGCTL_BIN: /opt/regctl
+  SOURCE_IMAGE: dhi.io/alpine-base
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        alpine_version: [3.23, 3.24]
+
+    steps:
+      - name: Install regctl
+        run: |
+          mkdir -p /opt/
+          curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 > $REGCTL_BIN
+          chmod 755 $REGCTL_BIN
+
+      # Set secrets in repo Settings->Secrets->New repository secret
+      - name: Login regctl
+        run: |
+          $REGCTL_BIN registry login ${{ env.DOCKER_REGISTRY }} -u douman --pass "${{ secrets.DOCKER_TOKEN }}"
+          $REGCTL_BIN registry login dhi.io -u douman --pass "${{ secrets.DOCKER_TOKEN }}"
+          $REGCTL_BIN registry login ${{ env.GITHUB_REGISTRY }} -u ${{ github.repository_owner }} --pass "${{ secrets.GITHUB_TOKEN }}"
+          $REGCTL_BIN registry login ${{ env.QUAY_REGISTRY }} -u doumanash+alpine-base-ci --pass "${{ secrets.QUAY_TOKEN }}"
+
+      - name: Mirror ${{ env.SOURCE_IMAGE }} image
+        run: |
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}} ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:${{matrix.alpine_version}}
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}} ${{ env.GITHUB_REGISTRY }}/${{ env.GITHUB_IMAGE_NAME }}:${{matrix.alpine_version}}
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}} ${{ env.QUAY_REGISTRY }}/${{ env.GITHUB_IMAGE_NAME }}:${{matrix.alpine_version}}
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}}-alpine${{matrix.alpine_version}}-dev ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:${{matrix.alpine_version}}-dev
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}}-alpine${{matrix.alpine_version}}-dev ${{ env.GITHUB_REGISTRY }}/${{ env.GITHUB_IMAGE_NAME }}:${{matrix.alpine_version}}-dev
+          $REGCTL_BIN image copy ${{ env.SOURCE_IMAGE }}:${{matrix.alpine_version}}-alpine${{matrix.alpine_version}}-dev ${{ env.QUAY_REGISTRY }}/${{ env.GITHUB_IMAGE_NAME }}:${{matrix.alpine_version}}-dev
